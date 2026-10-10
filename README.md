@@ -8,7 +8,8 @@ mirroring, try the result live with an automatic rollback, then save it to
 ![Monitor Arranger](docs/screenshot.png)
 
 > **Status:** standalone GTK4/libadwaita app (Python). A native Omarchy shell
-> plugin is in development on the [`plugin`](../../tree/plugin) branch — see [Roadmap](#roadmap).
+> plugin is in development at
+> [omarchy_monitor_manager](https://github.com/FabioCuccaro/omarchy_monitor_manager).
 
 ## Features
 
@@ -75,6 +76,5 @@ monitor-arranger --config FILE    # alternative monitors.lua
 ## Roadmap
 
 - [x] English UI
-- [ ] Native Omarchy shell plugin (QML) published on
-      [plugins.omarchy.org](https://plugins.omarchy.org)
-- [ ] "Arrange displays…" entry from the built-in Display panel / Omarchy menu
+- [x] Native Omarchy shell plugin (QML): continued in
+      [omarchy_monitor_manager](https://github.com/FabioCuccaro/omarchy_monitor_manager)
