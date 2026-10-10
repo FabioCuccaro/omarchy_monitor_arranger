@@ -78,3 +78,7 @@ monitor-arranger --config FILE    # alternative monitors.lua
 - [x] English UI
 - [x] Native Omarchy shell plugin (QML): continued in
       [omarchy_monitor_manager](https://github.com/FabioCuccaro/omarchy_monitor_manager)
+
+## License
+
+[MIT](LICENSE) © 2026 Fabio Cuccaro
