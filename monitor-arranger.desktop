@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Monitor Arranger
-Comment=Gestione visuale dei monitor per Hyprland
+Comment=Visual monitor arrangement for Hyprland
 Exec=monitor-arranger
 Icon=video-display
 Terminal=false

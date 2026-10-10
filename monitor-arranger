@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Monitor Arranger — gestione visuale dei monitor per Hyprland/Omarchy.
+Monitor Arranger — visual display arrangement for Hyprland/Omarchy.
 
-Trascina gli schermi sul canvas (aggancio magnetico a bordi e centri, tieni
-Shift per disattivarlo), scegli risoluzione, scala, rotazione, VRR e
-duplicazione, poi:
-  - "Prova" -> applica subito via `hyprctl eval`; se non confermi entro 15 s
-               torna da solo alla configurazione precedente
-  - "Salva" -> aggiorna ~/.config/hypr/monitors.lua (con backup), conservando
-               commenti e campi non gestiti, e controlla `hyprctl configerrors`
+Drag the screens around the canvas (magnetic snapping to edges and centres,
+hold Shift to disable it), pick resolution, scale, rotation, VRR and
+mirroring, then:
+  - "Try"  -> applies it right away via `hyprctl eval`; unless you confirm
+              within 15 s it rolls back to the previous configuration
+  - "Save" -> updates ~/.config/hypr/monitors.lua (with a backup), keeping
+              comments and unmanaged fields, and checks `hyprctl configerrors`
 
-Uso:
-    monitor-arranger                 # monitor reali via hyprctl
-    monitor-arranger --mock          # dati finti, per provare la UI
-    monitor-arranger --config FILE   # file monitors.lua alternativo
+Usage:
+    monitor-arranger                 # real monitors via hyprctl
+    monitor-arranger --mock          # fake data, to try out the UI
+    monitor-arranger --config FILE   # alternative monitors.lua file
 """
 
 import argparse
@@ -33,9 +33,9 @@ LAYER_SHELL_LIB = "/usr/lib/libgtk4-layer-shell.so"
 
 
 def _ensure_layer_shell_preload():
-    """gtk4-layer-shell (usata per "Identifica") va caricata prima di
-    libwayland-client: da Python l'unico modo è LD_PRELOAD, quindi ci
-    rilanciamo una volta sola."""
+    """gtk4-layer-shell (used by "Identify") must be loaded before
+    libwayland-client: from Python the only way is LD_PRELOAD, so we
+    re-exec ourselves once."""
     if not os.path.exists(LAYER_SHELL_LIB) or os.environ.get("MONITOR_ARRANGER_REEXEC"):
         return
     env = dict(os.environ)
@@ -66,22 +66,22 @@ except (ValueError, ImportError):
 APP_ID = "dev.local.hypr-monitor-arranger"
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "hypr" / "monitors.lua"
 THEME_COLORS_PATH = Path.home() / ".local" / "state" / "omarchy" / "current" / "theme" / "colors.toml"
-SNAP_PX = 14          # distanza di aggancio, in pixel del canvas
-REVERT_SECONDS = 15   # tempo per confermare una configurazione provata
-MAX_BACKUPS = 10      # backup di monitors.lua da conservare
+SNAP_PX = 14          # snapping distance, in canvas pixels
+REVERT_SECONDS = 15   # time to confirm a configuration being tried
+MAX_BACKUPS = 10      # monitors.lua backups to keep
 MANAGED_KEYS = {"output", "mode", "position", "scale", "transform", "vrr", "mirror", "disabled"}
 
 TRANSFORMS = [
-    (0, "Normale"),
-    (1, "Ruotato 90°"),
-    (2, "Ruotato 180°"),
-    (3, "Ruotato 270°"),
-    (4, "Specchiato"),
-    (5, "Specchiato + 90°"),
-    (6, "Specchiato + 180°"),
-    (7, "Specchiato + 270°"),
+    (0, "Normal"),
+    (1, "Rotated 90°"),
+    (2, "Rotated 180°"),
+    (3, "Rotated 270°"),
+    (4, "Flipped"),
+    (5, "Flipped + 90°"),
+    (6, "Flipped + 180°"),
+    (7, "Flipped + 270°"),
 ]
-VRR_MODES = [(0, "Disattivato"), (1, "Sempre attivo"), (2, "Solo a schermo intero")]
+VRR_MODES = [(0, "Off"), (1, "Always on"), (2, "Fullscreen only")]
 
 CONFIG_HEADER = (
     "-- See https://wiki.hypr.land/Configuring/Basics/Monitors/\n"
@@ -139,11 +139,11 @@ def hyprctl(*args, timeout=5):
         r = subprocess.run(["hyprctl", *args], capture_output=True, text=True,
                            timeout=timeout, env=CHILD_ENV)
     except FileNotFoundError:
-        raise HyprError("hyprctl non trovato: non sembri essere dentro Hyprland.")
+        raise HyprError("hyprctl not found: you don't seem to be running inside Hyprland.")
     except subprocess.TimeoutExpired:
-        raise HyprError("hyprctl non risponde.")
+        raise HyprError("hyprctl is not responding.")
     if r.returncode != 0:
-        raise HyprError((r.stderr or r.stdout).strip() or f"hyprctl {args[0]} ha fallito ({r.returncode})")
+        raise HyprError((r.stderr or r.stdout).strip() or f"hyprctl {args[0]} failed ({r.returncode})")
     return r.stdout
 
 
@@ -151,15 +151,15 @@ def read_live_monitors():
     try:
         return json.loads(hyprctl("monitors", "all", "-j"))
     except json.JSONDecodeError as e:
-        raise HyprError(f"output di hyprctl non valido: {e}")
+        raise HyprError(f"invalid hyprctl output: {e}")
 
 
 def hypr_eval(lua):
-    # Con la config Lua `hyprctl keyword` non funziona più (e risponde con
-    # exit code 0): l'unico modo affidabile è eval, che risponde "ok".
+    # With the Lua config `hyprctl keyword` no longer works (and still exits
+    # with code 0): the only reliable way is eval, which answers "ok".
     out = hyprctl("eval", lua).strip()
     if out != "ok":
-        raise HyprError(out or "risposta vuota da hyprctl eval")
+        raise HyprError(out or "empty answer from hyprctl eval")
 
 
 def config_errors():
@@ -172,7 +172,7 @@ def config_errors():
 
 
 # ---------------------------------------------------------------------------
-# formattazione
+# formatting
 # ---------------------------------------------------------------------------
 
 def fmt_num(v, digits=6):
@@ -215,8 +215,8 @@ def parse_modes(raw):
 
 
 def valid_scales(w, h):
-    """Scale per cui la risoluzione logica resta intera: Hyprland lavora in
-    passi di 1/120 e scarta (o corregge) le scale che danno pixel frazionari."""
+    """Scales that keep the logical resolution integral: Hyprland works in
+    1/120 steps and rejects (or adjusts) scales that give fractional pixels."""
     return [n / 120 for n in range(60, 361) if (w * 120) % n == 0 and (h * 120) % n == 0]
 
 
@@ -225,12 +225,12 @@ def nearest(values, target):
 
 
 # ---------------------------------------------------------------------------
-# modello
+# model
 # ---------------------------------------------------------------------------
 
 class Monitor:
-    """Un output. width/height/refresh sono il modo fisico; x/y la posizione
-    nel layout logico di Hyprland (già scalata e ruotata)."""
+    """One output. width/height/refresh are the physical mode; x/y the
+    position in Hyprland's logical layout (already scaled and rotated)."""
 
     STATE_KEYS = ("width", "height", "refresh", "x", "y", "scale", "transform", "vrr", "disabled", "mirror")
 
@@ -257,7 +257,7 @@ class Monitor:
         self.mirror = "" if mirror == "none" else mirror
         self.focused = bool(d.get("focused"))
 
-    # stato confrontabile / ripristinabile (undo, "modifiche non applicate")
+    # comparable / restorable state (undo, "unapplied changes")
     def state(self):
         return (self.width, self.height, round(self.refresh, 2), int(round(self.x)), int(round(self.y)),
                 round(self.scale, 4), self.transform, self.vrr, self.disabled, self.mirror)
@@ -301,8 +301,8 @@ class Monitor:
         return scales
 
     def lua_fields(self, explicit=False):
-        """explicit=True scrive anche i valori di default: serve con eval, per
-        azzerare rotazione/VRR rimasti da una regola precedente."""
+        """explicit=True also writes default values: needed with eval to
+        reset rotation/VRR left over from a previous rule."""
         if self.disabled:
             return [("output", lua_str(self.name)), ("disabled", "true")]
         fields = [
@@ -329,9 +329,9 @@ def build_monitors(data, config_path):
     by_id = {str(d.get("id")): d["name"] for d in data}
     monitors = [Monitor(d) for d in data]
     for m in monitors:
-        if m.mirror in by_id:  # hyprctl riporta l'id dell'output duplicato
+        if m.mirror in by_id:  # hyprctl reports the id of the mirrored output
             m.mirror = by_id[m.mirror]
-    # hyprctl dice solo se il VRR è attivo, non la modalità: la leggiamo dal file
+    # hyprctl only says whether VRR is on, not the mode: read it from the file
     try:
         blocks = find_monitor_blocks(config_path.read_text())
     except OSError:
@@ -347,15 +347,15 @@ def build_monitors(data, config_path):
 
 
 def apply_layout(monitors):
-    # prima gli schermi attivi, poi le duplicazioni, per ultimi quelli spenti:
-    # così non si resta mai senza un output acceso a metà strada
+    # enabled screens first, then mirrors, disabled ones last: this way we
+    # never end up halfway through with no output turned on
     order = sorted(monitors, key=lambda m: (m.disabled, bool(m.mirror)))
     for m in order:
         hypr_eval(m.lua_inline(explicit=True))
 
 
 # ---------------------------------------------------------------------------
-# geometria
+# geometry
 # ---------------------------------------------------------------------------
 
 def overlaps(a, b):
@@ -372,7 +372,7 @@ def touches(a, b):
 
 
 def detached_monitors(layout):
-    """Schermi non raggiungibili col cursore dal gruppo principale."""
+    """Screens the cursor cannot reach from the main group."""
     if len(layout) < 2:
         return []
     groups, left = [], list(layout)
@@ -390,10 +390,10 @@ def detached_monitors(layout):
 
 
 def snap_position(mon, x, y, others, threshold, sticky=(None, None)):
-    """Aggancia (x, y) a bordi, adiacenze e centri degli altri schermi.
-    sticky contiene gli agganci del passo precedente: restano attivi finché
-    non ci si allontana di 1,6 volte la soglia (isteresi), così vicino al
-    limite non si salta avanti e indietro. Restituisce (x, y, guide, sticky)."""
+    """Snap (x, y) to the edges, adjacencies and centres of the other screens.
+    sticky holds the previous step's snaps: they stay active until you move
+    1.6 times the threshold away (hysteresis), so it doesn't jump back and
+    forth near the limit. Returns (x, y, guides, sticky)."""
     w, h = mon.logical_w, mon.logical_h
     cands_x, cands_y = [], []
     for o in others:
@@ -433,7 +433,7 @@ BLOCK_START = re.compile(r"^[ \t]*hl\.monitor\s*\(\s*\{", re.M)
 
 
 def split_top_level(body):
-    """Divide il corpo di una tabella Lua in coppie (chiave, valore grezzo)."""
+    """Split the body of a Lua table into (key, raw value) pairs."""
     parts, cur, depth, in_str, i = [], [], 0, None, 0
     while i < len(body):
         c = body[i]
@@ -473,7 +473,7 @@ def split_top_level(body):
 
 
 def find_monitor_blocks(text):
-    """Trova le chiamate hl.monitor({...}) non commentate."""
+    """Find the hl.monitor({...}) calls that are not commented out."""
     blocks = []
     for m in BLOCK_START.finditer(text):
         start = m.start() + len(m[0]) - len(m[0].lstrip(" \t"))
@@ -534,8 +534,8 @@ def render_block(mon, old_fields=None, output_raw=None):
 
 
 def update_config_text(text, monitors):
-    """Riscrive i blocchi dei monitor indicati lasciando intatto il resto
-    (commenti, variabili, regola generica output = "", campi extra)."""
+    """Rewrite the blocks of the given monitors leaving everything else
+    untouched (comments, variables, the catch-all output = "" rule, extra fields)."""
     blocks = find_monitor_blocks(text)
     edits, appended, used = [], [], set()
     for mon in monitors:
@@ -549,10 +549,10 @@ def update_config_text(text, monitors):
         out_raw = next(v for k, v in first["fields"] if k == "output")
         edits.append((first["start"], first["end"], render_block(mon, first["fields"], out_raw)))
         for dup in mine[1:]:
-            # una regola duplicata prevarrebbe sulla nostra: la commentiamo
+            # a duplicate rule would override ours: comment it out
             old = text[dup["start"]:dup["end"]]
             edits.append((dup["start"], dup["end"],
-                          "-- duplicato disattivato da monitor-arranger:\n"
+                          "-- duplicate disabled by monitor-arranger:\n"
                           + "\n".join("-- " + line for line in old.splitlines())))
     for start, end, rep in sorted(edits, reverse=True):
         text = text[:start] + rep + text[end:]
@@ -563,7 +563,7 @@ def update_config_text(text, monitors):
 
 
 def write_config(path, monitors):
-    """Scrive monitors.lua e restituisce (testo originale o None, backup)."""
+    """Write monitors.lua and return (original text or None, backup)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     original = path.read_text() if path.exists() else None
     backup = None
@@ -573,13 +573,13 @@ def write_config(path, monitors):
         old = sorted(path.parent.glob(f"{path.name}.bak.*"), key=lambda p: p.stat().st_mtime)
         for p in old[:-MAX_BACKUPS]:
             p.unlink(missing_ok=True)
-    # scrittura in place (non rename): Hyprland osserva il file per l'auto-reload
+    # write in place (no rename): Hyprland watches the file for auto-reload
     path.write_text(update_config_text(original or "", monitors))
     return original, backup
 
 
 # ---------------------------------------------------------------------------
-# tema Omarchy
+# Omarchy theme
 # ---------------------------------------------------------------------------
 
 FALLBACK_THEME = {
@@ -684,7 +684,7 @@ class LayoutCanvas(Gtk.DrawingArea):
         super().__init__(hexpand=True, vexpand=True, focusable=True)
         self.win = win
         self.zoom, self.ox, self.oy, self.px, self.py = 0.1, 0, 0, 0, 0
-        self.frozen = False   # durante il drag la vista non si riadatta
+        self.frozen = False   # the view does not refit while dragging
         self.drag = None
         self.guides = []
         self.hover = None
@@ -705,7 +705,7 @@ class LayoutCanvas(Gtk.DrawingArea):
         keys.connect("key-pressed", self._on_key)
         self.add_controller(keys)
 
-    # ----- trasformazioni -----
+    # ----- transforms -----
     def fit(self):
         if self.frozen:
             return
@@ -743,7 +743,7 @@ class LayoutCanvas(Gtk.DrawingArea):
         top = self.drag["mon"] if self.drag else self.win.selected
         return sorted(lay, key=lambda m: m is top)
 
-    # ----- disegno -----
+    # ----- drawing -----
     def _font(self, size, bold=False):
         fd = self.get_pango_context().get_font_description().copy()
         fd.set_absolute_size(size * Pango.SCALE)
@@ -780,7 +780,7 @@ class LayoutCanvas(Gtk.DrawingArea):
 
         layout = self.win.layout_monitors()
         if not layout:
-            self._text(cr, "Nessuno schermo attivo nel layout", 0, h / 2 - 12, 16, muted,
+            self._text(cr, "No active screen in the layout", 0, h / 2 - 12, 16, muted,
                        width=w, center=True)
             return
 
@@ -814,7 +814,7 @@ class LayoutCanvas(Gtk.DrawingArea):
         lay_h = max(m.y + m.logical_h for m in layout) - min(m.y for m in layout)
         layout = PangoCairo.create_layout(cr)
         layout.set_font_description(self._font(11))
-        layout.set_text(f"Area totale {int(lay_w)} × {int(lay_h)} px logici", -1)
+        layout.set_text(f"Total area {int(lay_w)} × {int(lay_h)} logical px", -1)
         tw, th = layout.get_pixel_size()
         cr.set_source_rgba(*muted, 1.0)
         cr.move_to(w - tw - 18, h - th - 22)
@@ -862,7 +862,7 @@ class LayoutCanvas(Gtk.DrawingArea):
             cr.stroke()
             cr.set_dash([])
 
-        # bordo "superiore" dell'immagine: aiuta a leggere la rotazione
+        # "top" edge of the image: makes the rotation readable
         edge = {0: "top", 1: "right", 2: "bottom", 3: "left",
                 4: "top", 5: "left", 6: "bottom", 7: "right"}[mon.transform]
         bar = 4
@@ -884,13 +884,13 @@ class LayoutCanvas(Gtk.DrawingArea):
         lines = [(mon.name, name_size, True, 1.0)]
         if mh > 70 and mw > 110:
             lines.append((f"{mon.width}×{mon.height} · {fmt_refresh(mon.refresh)} Hz", name_size * 0.62, False, 0.85))
-            info = f"scala {scale_label(mon.scale)} · {int(round(mon.logical_w))}×{int(round(mon.logical_h))}"
+            info = f"scale {scale_label(mon.scale)} · {int(round(mon.logical_w))}×{int(round(mon.logical_h))}"
             if mon.transform:
                 info += f" · {TRANSFORMS[mon.transform][1].lower()}"
             lines.append((info, name_size * 0.56, False, 0.7))
             mirrors = [m.name for m in self.win.monitors if m.mirror == mon.name and not m.disabled]
             if mirrors:
-                lines.append((f"duplicato su {', '.join(mirrors)}", name_size * 0.56, False, 0.7))
+                lines.append((f"mirrored on {', '.join(mirrors)}", name_size * 0.56, False, 0.7))
         total = sum(s * 1.45 for _, s, _, _ in lines)
         ty = y + (mh - total) / 2
         for text, size, bold, alpha in lines:
@@ -899,7 +899,7 @@ class LayoutCanvas(Gtk.DrawingArea):
         if mh > 90 and mw > 140:
             self._text(cr, f"{int(round(mon.x))}, {int(round(mon.y))}", x + 12, y + mh - 24, 10.5, muted, 1.0)
 
-    # ----- interazione -----
+    # ----- interaction -----
     def _set_hover(self, mon):
         if mon is not self.hover:
             self.hover = mon
@@ -973,7 +973,7 @@ class LayoutCanvas(Gtk.DrawingArea):
 
 
 # ---------------------------------------------------------------------------
-# finestra
+# window
 # ---------------------------------------------------------------------------
 
 class ArrangerWindow(Adw.ApplicationWindow):
@@ -1006,7 +1006,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.after_change()
         self.connect("close-request", self._on_close_request)
 
-    # ----- costruzione UI -----
+    # ----- UI construction -----
     def _build_ui(self):
         self.toasts = Adw.ToastOverlay()
         self.set_content(self.toasts)
@@ -1017,19 +1017,19 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.title_widget = Adw.WindowTitle(title="Monitor")
         header.set_title_widget(self.title_widget)
         for icon, action, tip in (
-            ("edit-undo-symbolic", "win.undo", "Annulla (Ctrl+Z)"),
-            ("view-refresh-symbolic", "win.reload", "Ricarica la configurazione attuale da Hyprland (F5)"),
-            ("video-display-symbolic", "win.identify", "Mostra il nome su ogni schermo (Ctrl+I)"),
+            ("edit-undo-symbolic", "win.undo", "Undo (Ctrl+Z)"),
+            ("view-refresh-symbolic", "win.reload", "Reload the current configuration from Hyprland (F5)"),
+            ("video-display-symbolic", "win.identify", "Show the name on every screen (Ctrl+I)"),
         ):
             header.pack_start(Gtk.Button(icon_name=icon, action_name=action, tooltip_text=tip))
 
-        save = Gtk.Button(label="Salva", action_name="win.save",
-                          tooltip_text="Scrivi in monitors.lua, con backup (Ctrl+S)")
+        save = Gtk.Button(label="Save", action_name="win.save",
+                          tooltip_text="Write to monitors.lua, with a backup (Ctrl+S)")
         save.add_css_class("suggested-action")
         header.pack_end(save)
-        header.pack_end(Gtk.Button(label="Prova", action_name="win.apply",
-                                   tooltip_text=f"Applica subito; senza conferma torna indietro dopo "
-                                                f"{REVERT_SECONDS} s (Ctrl+Invio)"))
+        header.pack_end(Gtk.Button(label="Try", action_name="win.apply",
+                                   tooltip_text=f"Apply now; without confirmation it rolls back after "
+                                                f"{REVERT_SECONDS} s (Ctrl+Enter)"))
         view.add_top_bar(header)
 
 
@@ -1044,21 +1044,21 @@ class ArrangerWindow(Adw.ApplicationWindow):
         bar = Gtk.Box(spacing=4, halign=Gtk.Align.START, valign=Gtk.Align.END,
                       margin_start=14, margin_bottom=14)
         bar.add_css_class("canvas-toolbar")
-        snap = Gtk.ToggleButton(active=True, tooltip_text="Aggancio magnetico a bordi e centri")
-        snap.set_child(Adw.ButtonContent(icon_name="view-grid-symbolic", label="Aggancio"))
+        snap = Gtk.ToggleButton(active=True, tooltip_text="Magnetic snapping to edges and centres")
+        snap.set_child(Adw.ButtonContent(icon_name="view-grid-symbolic", label="Snap"))
         snap.add_css_class("flat")
         snap.connect("toggled", lambda b: setattr(self, "snap_enabled", b.get_active()))
         bar.append(snap)
-        hint = Gtk.Label(label="Trascina per spostare · Shift: senza aggancio · "
-                               "Frecce: 10 px (Shift 100, Alt 1) · Tab: schermo successivo")
+        hint = Gtk.Label(label="Drag to move · Shift: no snapping · "
+                               "Arrows: 10 px (Shift 100, Alt 1) · Tab: next screen")
         hint.add_css_class("dim-label")
         hint.add_css_class("caption")
         hint.set_ellipsize(Pango.EllipsizeMode.END)
         bar.append(hint)
         overlay.add_overlay(bar)
 
-        # avvisi sovrapposti al canvas (non spostano il layout, a differenza
-        # di un banner in cima che lo farebbe "saltare" durante il drag)
+        # warnings floating over the canvas (they don't shift the layout,
+        # unlike a banner on top, which made it "jump" while dragging)
         self.warning = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.CROSSFADE,
                                     halign=Gtk.Align.CENTER, valign=Gtk.Align.START,
                                     margin_top=14, margin_start=14, margin_end=14)
@@ -1067,8 +1067,8 @@ class ArrangerWindow(Adw.ApplicationWindow):
         warn_box.append(Gtk.Image(icon_name="dialog-warning-symbolic"))
         self.warning_label = Gtk.Label(wrap=True, xalign=0)
         warn_box.append(self.warning_label)
-        fix = Gtk.Button(label="Sistema", valign=Gtk.Align.CENTER,
-                         tooltip_text="Riallinea gli schermi (Ctrl+Z per annullare)")
+        fix = Gtk.Button(label="Fix", valign=Gtk.Align.CENTER,
+                         tooltip_text="Re-align the screens (Ctrl+Z to undo)")
         fix.add_css_class("pill")
         fix.connect("clicked", lambda *_: self.auto_arrange())
         warn_box.append(fix)
@@ -1079,7 +1079,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
         page = Adw.PreferencesPage()
         split.set_sidebar(page)
 
-        list_group = Adw.PreferencesGroup(title="Schermi")
+        list_group = Adw.PreferencesGroup(title="Screens")
         self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.listbox.add_css_class("boxed-list")
         self.listbox.connect("row-selected", self._on_row_selected)
@@ -1089,18 +1089,18 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.settings_group = Adw.PreferencesGroup()
         page.add(self.settings_group)
 
-        cfg_group = Adw.PreferencesGroup(title="Configurazione",
+        cfg_group = Adw.PreferencesGroup(title="Configuration",
                                          description=str(self.config_path).replace(str(Path.home()), "~"))
         buttons = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
-        for icon, tip, cb in (("edit-copy-symbolic", "Copia il codice Lua", self._copy_preview),
-                              ("document-open-symbolic", "Apri monitors.lua", self._open_config)):
+        for icon, tip, cb in (("edit-copy-symbolic", "Copy the Lua code", self._copy_preview),
+                              ("document-open-symbolic", "Open monitors.lua", self._open_config)):
             b = Gtk.Button(icon_name=icon, tooltip_text=tip)
             b.add_css_class("flat")
             b.connect("clicked", lambda *_, cb=cb: cb())
             buttons.append(b)
         cfg_group.set_header_suffix(buttons)
-        expander = Adw.ExpanderRow(title="Anteprima di monitors.lua",
-                                   subtitle="Blocchi che verranno scritti con «Salva»")
+        expander = Adw.ExpanderRow(title="monitors.lua preview",
+                                   subtitle="Blocks that “Save” will write")
         self.preview_label = Gtk.Label(xalign=0, selectable=True)
         self.preview_label.add_css_class("monospace")
         self.preview_label.add_css_class("lua-preview")
@@ -1123,7 +1123,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.undo_action = self.lookup_action("undo")
         self.undo_action.set_enabled(False)
 
-    # ----- modello -----
+    # ----- model -----
     def _assign_colors(self):
         names = sorted(m.name for m in self.monitors)
         self.color_index = {n: i % len(self.palette) for i, n in enumerate(names)}
@@ -1174,8 +1174,8 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.after_change(rebuild=True)
 
     def change_geometry(self, mon, mutate):
-        """Applica un cambio di dimensione (modo, scala, rotazione) tenendo
-        attaccati gli schermi che confinavano a destra e sotto."""
+        """Apply a size change (mode, scale, rotation) keeping the screens
+        that touched it on the right and below attached."""
         lay = [o for o in self.layout_monitors() if o is not mon]
         old_r, old_b = mon.x + mon.logical_w, mon.y + mon.logical_h
         right = [o for o in lay if abs(o.x - old_r) < 1 and
@@ -1197,14 +1197,14 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.push_undo()
         span_w = max(m.x + m.logical_w for m in lay) - min(m.x for m in lay)
         span_h = max(m.y + m.logical_h for m in lay) - min(m.y for m in lay)
-        if span_h > span_w:  # impilati: in colonna, centrati
+        if span_h > span_w:  # stacked: in a column, centred
             lay.sort(key=lambda m: m.y + m.logical_h / 2)
             widest = max(m.logical_w for m in lay)
             y = 0
             for m in lay:
                 m.x, m.y = int(round((widest - m.logical_w) / 2)), int(round(y))
                 y += m.logical_h
-        else:  # affiancati: in riga, allineati in basso
+        else:  # side by side: in a row, bottom-aligned
             lay.sort(key=lambda m: m.x + m.logical_w / 2)
             tallest = max(m.logical_h for m in lay)
             x = 0
@@ -1212,12 +1212,12 @@ class ArrangerWindow(Adw.ApplicationWindow):
                 m.x, m.y = int(round(x)), int(round(tallest - m.logical_h))
                 x += m.logical_w
         self.after_change()
-        self.toast("Schermi riallineati — Ctrl+Z per annullare")
+        self.toast("Screens re-aligned — Ctrl+Z to undo")
 
-    # ----- aggiornamento viste -----
+    # ----- view updates -----
     def after_change(self, live=False, rebuild=False):
         self.canvas.queue_draw()
-        if live:  # durante il drag: solo il minimo indispensabile
+        if live:  # while dragging: only the bare minimum
             self._sync_position_rows()
             return
         self._update_status()
@@ -1232,8 +1232,8 @@ class ArrangerWindow(Adw.ApplicationWindow):
         lay = self.layout_monitors()
         dirty = self.snapshot() != self.live_state
         n = len(lay)
-        subtitle = f"{n} {'schermo attivo' if n == 1 else 'schermi attivi'}"
-        subtitle += " · modifiche non applicate" if dirty else " · come ora"
+        subtitle = f"{n} active {'screen' if n == 1 else 'screens'}"
+        subtitle += " · unapplied changes" if dirty else " · current"
         if self.mock:
             subtitle += " · demo"
         self.title_widget.set_subtitle(subtitle)
@@ -1241,21 +1241,21 @@ class ArrangerWindow(Adw.ApplicationWindow):
         problems = []
         bad = sorted(self.overlapping_names())
         if bad:
-            problems.append(f"{' e '.join(bad)} si sovrappongono")
+            problems.append(f"{' and '.join(bad)} overlap")
         far = detached_monitors(lay)
         if far:
             names = ", ".join(m.name for m in far)
-            problems.append(f"{names} non {'confina' if len(far) == 1 else 'confinano'} con gli altri: "
-                            "il cursore non potrà passarci")
+            problems.append(f"{names} {'does' if len(far) == 1 else 'do'} not touch the others: "
+                            "the cursor can't reach it")
         if problems:
             self.warning_label.set_text(" · ".join(problems))
         self.warning.set_reveal_child(bool(problems))
 
     def _status_text(self, mon):
         if mon.disabled:
-            return "spento"
+            return "off"
         if mon.mirror:
-            return f"duplica {mon.mirror}"
+            return f"mirrors {mon.mirror}"
         return f"{mon.width}×{mon.height} · {scale_label(mon.scale)}×"
 
     def rebuild_list(self):
@@ -1310,7 +1310,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
         i = self.monitors.index(self.selected) if self.selected in self.monitors else -1
         self.select(self.monitors[(i + 1) % len(self.monitors)])
 
-    # ----- pannello impostazioni -----
+    # ----- settings panel -----
     def _rebuild_settings_idle(self):
         self.rebuild_settings()
         return False
@@ -1328,12 +1328,12 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.settings_group.set_description(mon.description or None)
         self._syncing = True
 
-        on = Adw.SwitchRow(title="Acceso", subtitle="Spento, lo schermo esce dal layout")
+        on = Adw.SwitchRow(title="Enabled", subtitle="When off, the screen leaves the layout")
         on.set_active(not mon.disabled)
         on.connect("notify::active", self._on_enabled)
 
         mode_labels = [f"{w}×{h} @ {fmt_refresh(rr)} Hz" for w, h, rr in mon.modes]
-        mode = Adw.ComboRow(title="Risoluzione", subtitle=f"nativa {mon.modes[0][0]}×{mon.modes[0][1]}",
+        mode = Adw.ComboRow(title="Resolution", subtitle=f"native {mon.modes[0][0]}×{mon.modes[0][1]}",
                             model=Gtk.StringList.new(mode_labels))
         mode.set_selected(mon.mode_index())
         mode.connect("notify::selected", self._on_mode)
@@ -1343,31 +1343,31 @@ class ArrangerWindow(Adw.ApplicationWindow):
         for s in scales:
             lw, lh = (mon.height, mon.width) if mon.rotated else (mon.width, mon.height)
             scale_labels.append(f"{scale_label(s)}× · {lw / s:.0f}×{lh / s:.0f}")
-        scale = Adw.ComboRow(title="Scala", tooltip_text="Solo scale con area logica a pixel interi",
+        scale = Adw.ComboRow(title="Scale", tooltip_text="Only scales with an integer logical size",
                              model=Gtk.StringList.new(scale_labels))
         scale.set_selected(min(range(len(scales)), key=lambda i: abs(scales[i] - mon.scale)))
         scale.connect("notify::selected", self._on_scale, scales)
 
-        rot = Adw.ComboRow(title="Rotazione", model=Gtk.StringList.new([t[1] for t in TRANSFORMS]))
+        rot = Adw.ComboRow(title="Rotation", model=Gtk.StringList.new([t[1] for t in TRANSFORMS]))
         rot.set_selected(mon.transform)
         rot.connect("notify::selected", self._on_transform)
 
         targets = [m.name for m in self.monitors if m is not mon and not m.disabled and not m.mirror]
-        mirror = Adw.ComboRow(title="Duplica schermo",
-                              subtitle="Stesso contenuto di un altro",
+        mirror = Adw.ComboRow(title="Mirror",
+                              subtitle="Same content as another screen",
                               model=Gtk.StringList.new(["No"] + targets))
         mirror.set_selected(targets.index(mon.mirror) + 1 if mon.mirror in targets else 0)
         mirror.connect("notify::selected", self._on_mirror, targets)
 
-        vrr = Adw.ComboRow(title="Frequenza variabile (VRR)",
+        vrr = Adw.ComboRow(title="Variable refresh rate (VRR)",
                            model=Gtk.StringList.new([v[1] for v in VRR_MODES]))
         vrr.set_selected(mon.vrr if 0 <= mon.vrr < len(VRR_MODES) else 0)
         vrr.connect("notify::selected", self._on_vrr)
 
         pos_x = Adw.SpinRow.new_with_range(-32768, 32768, 1)
-        pos_x.set_title("Posizione X")
+        pos_x.set_title("Position X")
         pos_y = Adw.SpinRow.new_with_range(-32768, 32768, 1)
-        pos_y.set_title("Posizione Y")
+        pos_y.set_title("Position Y")
         pos_x.set_value(mon.x)
         pos_y.set_value(mon.y)
         pos_x.connect("notify::value", self._on_position, "x")
@@ -1401,7 +1401,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
             self._syncing = True
             row.set_active(True)
             self._syncing = False
-            self.toast("Deve restare acceso almeno uno schermo")
+            self.toast("At least one screen must stay on")
             return
         self.push_undo()
         mon.disabled = not enable
@@ -1464,7 +1464,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
         mon.mirror = targets[i - 1] if i > 0 else ""
         if mon.mirror:
             for m in self.monitors:
-                if m.mirror == mon.name:  # niente catene di duplicazioni
+                if m.mirror == mon.name:  # no mirror chains
                     m.mirror = ""
         else:
             others = [m for m in self.layout_monitors() if m is not mon]
@@ -1490,12 +1490,12 @@ class ArrangerWindow(Adw.ApplicationWindow):
         mon = self.selected
         value = int(row.get_value())
         if value == int(round(getattr(mon, axis))):
-            return  # la SpinRow notifica anche quando viene mostrata
+            return  # SpinRow also notifies when it is shown
         self.push_undo(key=f"pos-{mon.name}-{axis}")
         setattr(mon, axis, value)
         self.after_change()
 
-    # ----- azioni -----
+    # ----- actions -----
     def toast(self, title, button=None, action=None, timeout=4):
         t = Adw.Toast(title=GLib.markup_escape_text(title), timeout=timeout)
         if button:
@@ -1510,12 +1510,12 @@ class ArrangerWindow(Adw.ApplicationWindow):
 
     def reload_live(self):
         if self.mock:
-            self.toast("Modalità demo: niente da ricaricare")
+            self.toast("Demo mode: nothing to reload")
             return
         try:
             fresh = build_monitors(read_live_monitors(), self.config_path)
         except HyprError as e:
-            self.alert("Impossibile leggere i monitor", str(e))
+            self.alert("Couldn't read the monitors", str(e))
             return
         self.push_undo()
         selected = self.selected.name if self.selected else None
@@ -1526,11 +1526,11 @@ class ArrangerWindow(Adw.ApplicationWindow):
         self.rebuild_list()
         self.select(self.by_name(selected) or (fresh[0] if fresh else None))
         self.after_change()
-        self.toast("Configurazione ricaricata da Hyprland")
+        self.toast("Configuration reloaded from Hyprland")
 
     def do_apply(self):
         if self.mock:
-            self.toast("Modalità demo: nessuna modifica applicata")
+            self.toast("Demo mode: no changes applied")
             return
         if self._pending_revert:
             return
@@ -1539,7 +1539,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
         try:
             previous = build_monitors(read_live_monitors(), self.config_path)
         except HyprError as e:
-            self.alert("Impossibile leggere i monitor", str(e))
+            self.alert("Couldn't read the monitors", str(e))
             return
         try:
             apply_layout(self.monitors)
@@ -1548,18 +1548,18 @@ class ArrangerWindow(Adw.ApplicationWindow):
                 apply_layout(previous)
             except HyprError:
                 pass
-            self.alert("Configurazione non applicata", f"Hyprland ha risposto:\n{e}")
+            self.alert("Configuration not applied", f"Hyprland replied:\n{e}")
             return
 
         def keep():
             self.live_state = self.snapshot()
             self._update_status()
-            self.toast("Applicata. Salvala per mantenerla dopo il riavvio",
-                       button="Salva", action="win.save", timeout=8)
+            self.toast("Applied. Save it to keep it after a restart",
+                       button="Save", action="win.save", timeout=8)
 
         def revert():
             apply_layout(previous)
-            self.toast("Ripristinata la configurazione precedente")
+            self.toast("Previous configuration restored")
 
         self.confirm_keep(keep, revert)
 
@@ -1577,11 +1577,11 @@ class ArrangerWindow(Adw.ApplicationWindow):
         try:
             original, backup = write_config(self.config_path, self.monitors)
         except OSError as e:
-            self.alert("Salvataggio non riuscito", str(e))
+            self.alert("Save failed", str(e))
             return
         where = str(self.config_path).replace(str(Path.home()), "~")
         if self.mock:
-            self.toast(f"Salvato in {where} (demo)")
+            self.toast(f"Saved to {where} (demo)")
             return
 
         def restore():
@@ -1592,27 +1592,27 @@ class ArrangerWindow(Adw.ApplicationWindow):
             hyprctl("reload")
             errors = config_errors()
         except HyprError as e:
-            self.alert("Salvato, ma Hyprland non ha risposto", str(e))
+            self.alert("Saved, but Hyprland did not respond", str(e))
             return
         if errors:
-            d = Adw.AlertDialog(heading="La configurazione contiene errori",
+            d = Adw.AlertDialog(heading="The configuration has errors",
                                 body="\n".join(errors[:8]))
-            d.add_response("keep", "Lascia così")
-            d.add_response("restore", "Ripristina il file precedente")
+            d.add_response("keep", "Keep it")
+            d.add_response("restore", "Restore the previous file")
             d.set_response_appearance("restore", Adw.ResponseAppearance.DESTRUCTIVE)
 
             def on_response(_d, response):
                 if response == "restore":
                     try:
                         restore()
-                        self.toast("File precedente ripristinato")
+                        self.toast("Previous file restored")
                     except (OSError, HyprError) as e:
-                        self.alert("Ripristino non riuscito", str(e))
+                        self.alert("Restore failed", str(e))
             d.connect("response", on_response)
             d.present(self)
             return
 
-        saved_msg = f"Salvato in {where}" + (f" · backup {backup.name}" if backup else "")
+        saved_msg = f"Saved to {where}" + (f" · backup {backup.name}" if backup else "")
         if previous is not None and previous != self.snapshot():
             def keep():
                 self.live_state = self.snapshot()
@@ -1621,7 +1621,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
 
             def revert():
                 restore()
-                self.toast("Ripristinato il file monitors.lua precedente")
+                self.toast("Previous monitors.lua restored")
             self.confirm_keep(keep, revert)
         else:
             self.live_state = self.snapshot()
@@ -1629,18 +1629,18 @@ class ArrangerWindow(Adw.ApplicationWindow):
             self.toast(saved_msg, timeout=6)
 
     def confirm_keep(self, on_keep, on_revert):
-        """Chiede conferma della nuova configurazione; senza risposta (es.
-        schermo nero o fuori posto) torna indietro da sola."""
+        """Ask to confirm the new configuration; without an answer (e.g. a
+        black or misplaced screen) it rolls back on its own."""
         remaining = [REVERT_SECONDS]
         done = [False]
 
         def body():
-            return (f"Se non confermi, la configurazione precedente verrà ripristinata "
-                    f"tra {remaining[0]} secondi.")
+            return (f"Unless you confirm, the previous configuration will be restored "
+                    f"in {remaining[0]} seconds.")
 
-        dialog = Adw.AlertDialog(heading="Mantenere questa configurazione?", body=body())
-        dialog.add_response("revert", "Ripristina")
-        dialog.add_response("keep", "Mantieni")
+        dialog = Adw.AlertDialog(heading="Keep this configuration?", body=body())
+        dialog.add_response("revert", "Revert")
+        dialog.add_response("keep", "Keep")
         dialog.set_response_appearance("keep", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("keep")
         dialog.set_close_response("revert")
@@ -1656,7 +1656,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
             try:
                 on_keep() if keep else on_revert()
             except (OSError, HyprError) as e:
-                self.alert("Ripristino non riuscito", str(e))
+                self.alert("Restore failed", str(e))
 
         def tick():
             remaining[0] -= 1
@@ -1680,7 +1680,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
 
     def identify(self):
         if LayerShell is None or not LayerShell.is_supported():
-            self.toast("Identificazione non disponibile (serve gtk4-layer-shell)")
+            self.toast("Identify is not available (needs gtk4-layer-shell)")
             return
         for w in self._identify_windows:
             w.destroy()
@@ -1703,7 +1703,7 @@ class ArrangerWindow(Adw.ApplicationWindow):
             name = Gtk.Label(label=gm.get_connector() or "?")
             name.add_css_class("identify-name")
             card.append(name)
-            sub = Gtk.Label(label=(f"{mon.subtitle}\n{mon.width}×{mon.height} · scala {scale_label(mon.scale)}"
+            sub = Gtk.Label(label=(f"{mon.subtitle}\n{mon.width}×{mon.height} · scale {scale_label(mon.scale)}"
                                    if mon else gm.get_description() or ""), justify=Gtk.Justification.CENTER)
             sub.add_css_class("identify-sub")
             card.append(sub)
@@ -1720,17 +1720,17 @@ class ArrangerWindow(Adw.ApplicationWindow):
 
     def _copy_preview(self):
         self.get_clipboard().set("\n\n".join(render_block(m) for m in self.monitors) + "\n")
-        self.toast("Codice Lua copiato")
+        self.toast("Lua code copied")
 
     def _open_config(self):
         if not self.config_path.exists():
-            self.toast("Il file non esiste ancora: premi «Salva» per crearlo")
+            self.toast("The file doesn't exist yet: press “Save” to create it")
             return
         Gtk.FileLauncher.new(Gio.File.new_for_path(str(self.config_path))).launch(self, None, None)
 
 
 # ---------------------------------------------------------------------------
-# applicazione
+# application
 # ---------------------------------------------------------------------------
 
 class ArrangerApp(Adw.Application):
@@ -1759,7 +1759,7 @@ class ArrangerApp(Adw.Application):
             try:
                 data = read_live_monitors()
             except HyprError as e:
-                mock, warning = True, f"{e} — uso dati demo"
+                mock, warning = True, f"{e} — using demo data"
         if mock:
             data = MOCK_MONITORS
             if config_path == DEFAULT_CONFIG_PATH:
@@ -1774,9 +1774,9 @@ class ArrangerApp(Adw.Application):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mock", action="store_true",
-                        help="usa dati finti invece di leggere da hyprctl (per provare la UI)")
+                        help="use fake data instead of reading from hyprctl (to try out the UI)")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH,
-                        help=f"percorso del file monitors.lua (default: {DEFAULT_CONFIG_PATH})")
+                        help=f"path to the monitors.lua file (default: {DEFAULT_CONFIG_PATH})")
     args = parser.parse_args()
     ArrangerApp(args.mock, args.config.expanduser()).run([])
 
